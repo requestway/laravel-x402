@@ -134,6 +134,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Nano node
+    |--------------------------------------------------------------------------
+    |
+    | Set an RPC URL to verify nano:mainnet payments against a Nano node you
+    | run or trust instead of the facilitator. Add a nano:mainnet entry under
+    | "assets" with its own pay_to and units_per_usd. Unset, nothing changes.
+    |
+    */
+
+    'nano' => [
+        'rpc_url' => env('X402_NANO_RPC_URL'),
+
+        'timeout' => (int) env('X402_NANO_RPC_TIMEOUT', 10),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Settlement
     |--------------------------------------------------------------------------
     |

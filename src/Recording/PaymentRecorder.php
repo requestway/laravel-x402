@@ -205,7 +205,7 @@ final class PaymentRecorder
                 'asset_decimals' => $context->asset?->decimals,
                 'network' => $context->network(),
                 'payer' => $context->payer(),
-                'pay_to' => $context->route->payTo,
+                'pay_to' => $context->requirements->payTo ?? $context->route->payTo,
                 'status' => $status,
                 'facilitator' => $this->facilitatorLabel(),
                 'mode' => $context->mode,

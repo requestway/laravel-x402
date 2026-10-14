@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Requestway\X402;
 
+use Closure;
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
@@ -22,8 +23,11 @@ use Requestway\X402\Commands\InstallCommand;
 use Requestway\X402\Commands\RoutesCommand;
 use Requestway\X402\Commands\TestCommand;
 use Requestway\X402\Config\X402Config;
+use Requestway\X402\Core\Facilitator\Exceptions\FacilitatorResponseException;
 use Requestway\X402\Core\Facilitator\Facilitator;
 use Requestway\X402\Core\Facilitator\FacilitatorAuth;
+use Requestway\X402\Core\Facilitator\NanoFacilitator;
+use Requestway\X402\Core\Networks\Network;
 use Requestway\X402\Core\Protocol\CodecRegistry;
 use Requestway\X402\Core\Replay\ReplayGuard;
 use Requestway\X402\Core\Replay\ReplayStore;
@@ -32,6 +36,7 @@ use Requestway\X402\Core\Support\SystemClock;
 use Requestway\X402\Core\Validation\PaymentValidator;
 use Requestway\X402\Discovery\RouteCatalog;
 use Requestway\X402\Facilitators\HttpFacilitator;
+use Requestway\X402\Facilitators\RoutingFacilitator;
 use Requestway\X402\Http\Controllers\DiscoveryController;
 use Requestway\X402\Http\Middleware\HonorPaymentAttributes;
 use Requestway\X402\Http\Middleware\RequirePayment;
@@ -114,7 +119,7 @@ final class X402ServiceProvider extends PackageServiceProvider
 
             $auth = $facilitator['auth'] ?? null;
 
-            return new HttpFacilitator(
+            $http = new HttpFacilitator(
                 http: $this->app->make(HttpFactory::class),
                 codecs: $this->app->make(CodecRegistry::class),
                 baseUrl: $config->facilitatorUrl(),
@@ -131,6 +136,20 @@ final class X402ServiceProvider extends PackageServiceProvider
                     default => null,
                 },
             );
+
+            $nodeUrl = $config->nanoRpcUrl();
+
+            if ($nodeUrl === null) {
+                return $http;
+            }
+
+            return new RoutingFacilitator($http, [
+                Network::NANO => new NanoFacilitator(
+                    rpc: $this->nanoRpc($nodeUrl, (int) $config->get('nano.timeout', 10)),
+                    maxAgeSeconds: $config->replayTtl(),
+                    clock: $this->app->make(Clock::class),
+                ),
+            ]);
         });
 
         $this->app->singleton(Reporter::class, function (): Reporter {
@@ -243,6 +262,34 @@ final class X402ServiceProvider extends PackageServiceProvider
         RouteFacade::middleware($config->discoveryMiddleware())
             ->get($config->discoveryPath(), DiscoveryController::class)
             ->name('x402.discovery');
+    }
+
+    /**
+     * @return Closure(array<string, string>): array<string, mixed>
+     */
+    private function nanoRpc(string $url, int $timeout): Closure
+    {
+        return function (array $body) use ($url, $timeout): array {
+            $response = $this->app->make(HttpFactory::class)
+                ->asJson()
+                ->acceptJson()
+                ->timeout(max(1, $timeout))
+                ->post($url, $body);
+
+            /** @var mixed $decoded */
+            $decoded = $response->json();
+
+            if ($response->failed() || ! is_array($decoded)) {
+                throw new FacilitatorResponseException(
+                    sprintf('Nano node returned HTTP %d.', $response->status()),
+                    operation: (string) ($body['action'] ?? ''),
+                    status: $response->status(),
+                );
+            }
+
+            /** @var array<string, mixed> $decoded */
+            return $decoded;
+        };
     }
 
     private function logger(): LoggerInterface

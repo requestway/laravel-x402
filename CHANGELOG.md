@@ -11,6 +11,12 @@ and support for an older version is kept for reading as long as clients send it.
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in `nano:mainnet` support: with `x402.nano.rpc_url` set, Nano payments are verified with one `block_info` call
+  against your own node instead of a facilitator; every other network is unchanged. Adds the `nano` network alias,
+  per-network `pay_to` and `units_per_usd` on assets that are not USD-pegged, and `RoutingFacilitator`
+
 ### Changed
 
 - README documents the Requestway dashboard: what it shows, how to connect it, how reporting behaves and exactly

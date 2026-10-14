@@ -76,7 +76,7 @@ final class PaymentContext
             'amount_atomic' => $this->amountAtomic(),
             'asset' => $this->asset?->symbol,
             'network' => $this->network(),
-            'pay_to' => $this->route->payTo,
+            'pay_to' => $this->requirements->payTo ?? $this->route->payTo,
             'request_id' => $this->requestId,
         ];
     }
