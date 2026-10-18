@@ -89,6 +89,28 @@ final class UsdConverter
     }
 
     /**
+     * Convert a USD price to atomic units of an asset that is not USD-pegged,
+     * at a rate given in whole asset units per US dollar.
+     *
+     * Precision finer than one atomic unit rounds up.
+     */
+    public static function toAtomicAtRate(string|int|float $price, string $unitsPerUsd, int $decimals): string
+    {
+        [$priceWhole, $priceFraction] = self::split(self::parsePrice($price));
+        [$rateWhole, $rateFraction] = self::split(self::parsePrice($unitsPerUsd));
+
+        $scale = strlen($priceFraction) + strlen($rateFraction);
+        $product = str_pad(
+            Integers::multiply($priceWhole.$priceFraction, $rateWhole.$rateFraction),
+            $scale + 1,
+            '0',
+            STR_PAD_LEFT
+        );
+
+        return self::toAtomic($scale === 0 ? $product : substr($product, 0, -$scale).'.'.substr($product, -$scale), $decimals);
+    }
+
+    /**
      * Render atomic units back to a decimal string, for display only.
      */
     public static function toDecimalString(string $atomic, int $decimals): string

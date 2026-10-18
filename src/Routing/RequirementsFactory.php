@@ -9,7 +9,6 @@ use Requestway\X402\Core\Exceptions\ConfigurationException;
 use Requestway\X402\Core\Messages\PaymentRequired;
 use Requestway\X402\Core\Messages\PaymentRequirements;
 use Requestway\X402\Core\Messages\ResourceInfo;
-use Requestway\X402\Core\Money\UsdConverter;
 use Requestway\X402\Core\Networks\Network;
 
 /**
@@ -68,9 +67,9 @@ final class RequirementsFactory
             $accepts[] = new PaymentRequirements(
                 scheme: $route->scheme,
                 network: $network,
-                amount: UsdConverter::toAtomic($route->price, $asset->decimals),
+                amount: $asset->toAtomic($route->price),
                 asset: $asset->address,
-                payTo: $route->payTo,
+                payTo: $asset->payTo ?? $route->payTo,
                 maxTimeoutSeconds: $route->maxTimeoutSeconds,
                 extra: $asset->requirementsExtra(),
             );

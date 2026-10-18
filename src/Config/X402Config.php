@@ -231,6 +231,17 @@ final class X402Config
         return rtrim(trim($url), '/');
     }
 
+    /**
+     * The Nano node that verifies `nano:mainnet` payments. Unset, Nano
+     * payments go to the facilitator like any other network.
+     */
+    public function nanoRpcUrl(): ?string
+    {
+        $url = $this->get('nano.rpc_url');
+
+        return is_string($url) && trim($url) !== '' ? trim($url) : null;
+    }
+
     public function replayStore(): ?string
     {
         $store = $this->get('replay.store');

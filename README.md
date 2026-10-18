@@ -411,6 +411,34 @@ rather give the resource away than turn an outage into downtime.
 A settlement that comes back with the protocol's non-terminal `settlement_pending` reason is retried exactly once and
 then recorded as `pending` rather than `failed`, because the transaction may still confirm on chain.
 
+**Nano without a facilitator.** `nano:mainnet` payments can be checked directly against a Nano node you run or trust.
+The client publishes a send block to your Nano address and presents its hash; the package reads that block with one
+`block_info` call and serves the route only if it is a confirmed send of at least the price to you. Nothing is signed or
+broadcast server side, and every other network still goes to your facilitator.
+
+```env
+X402_NANO_RPC_URL=http://127.0.0.1:7076
+```
+
+```php
+// config/x402.php
+'assets' => [
+    'nano:mainnet' => [
+        'address' => 'XNO', 'decimals' => 30, 'symbol' => 'XNO', 'name' => 'Nano',
+        'pay_to' => 'nano_3t6k35gi95xu6tergt6p69ck76ogmitsa8mnijtpxm9fkcm736xtoncuohr3',
+        'units_per_usd' => '1.25', // XNO charged per US dollar of route price; you keep it current
+    ],
+],
+```
+
+```php
+Route::get('/report', ReportController::class)->middleware('x402:0.01,networks=base|nano');
+```
+
+XNO is not USD-pegged, so it is never a default: prices stay in USD and `units_per_usd` is the rate you choose. Each
+block can buy one response, and blocks older than `X402_REPLAY_TTL` are refused. See
+[docs/SPEC_NOTES.md](docs/SPEC_NOTES.md) §14.
+
 ## Testing
 
 `X402::fake()` swaps in an in-memory facilitator that accepts payments and records them, in the style of `Http::fake()`.

@@ -30,6 +30,7 @@ final class Network
         'arbitrum-sepolia' => 'eip155:421614',
         'celo' => 'eip155:42220',
         'sei' => 'eip155:1329',
+        'nano' => self::NANO,
     ];
 
     /** @var array<string, string> */
@@ -53,6 +54,7 @@ final class Network
         'eip155:84532' => 'Base Sepolia',
         'eip155:421614' => 'Arbitrum Sepolia',
         'eip155:11142220' => 'Celo Sepolia',
+        self::NANO => 'Nano',
     ];
 
     /**
@@ -75,6 +77,8 @@ final class Network
     public const BASE_SEPOLIA = 'eip155:84532';
 
     public const BASE = 'eip155:8453';
+
+    public const NANO = 'nano:mainnet';
 
     /**
      * Normalize a configured network to CAIP-2.
@@ -133,5 +137,10 @@ final class Network
     public static function isEvm(string $network): bool
     {
         return self::namespace($network) === 'eip155';
+    }
+
+    public static function isNano(string $network): bool
+    {
+        return $network === self::NANO;
     }
 }

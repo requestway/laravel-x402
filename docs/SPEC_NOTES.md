@@ -342,3 +342,38 @@ differs from the specification, the specification wins:
 | 402 body with the same info | v2 puts everything in the header; the body "is a server implementation concern" | Header is canonical; a v2-shaped JSON body with a human-readable `error` is sent as well, since the spec leaves the body to the server |
 | `/.well-known/x402` discovery | Not in the spec | Implemented using the spec's `DiscoveredResource` shape (§11) |
 | Verify then settle, then run the controller | The `authorization` flow settles **after** the resource runs | `before_response` runs the route, then settles, then responds — so a failing route does not charge the client (§7) |
+
+## 14. Nano (opt-in, outside the specification)
+
+`nano:mainnet` is not in the specification's network table and has no
+mechanism document. This package supports it only when an operator sets
+`x402.nano.rpc_url`; without that, nothing in this section applies and every
+network, `nano:mainnet` included, goes to the HTTP facilitator unchanged.
+
+* **Identifier.** `nano:mainnet`, CAIP-2 shaped; `nano` is accepted as an
+  alias. Addresses are `nano_` or legacy `xrb_` with the Blake2b-40 checksum
+  verified (implemented in `Core\Support\Blake2b`, because ext-sodium cannot
+  produce a 5-byte digest).
+* **Asset.** No default asset and no USD peg. The operator configures
+  `assets.nano:mainnet` with `decimals` 30 (raw units), its own `pay_to`, and
+  `units_per_usd`; the route price stays in USD and is converted at that rate,
+  rounding up (§10). EIP-712 `name`/`version` are not emitted in `extra`.
+* **Payload.** Exactly `{ "blockHash": "<64 uppercase hex>" }`. The client
+  pays first by publishing a send block; there is no authorization to sign or
+  broadcast. Any other spelling is refused, because §9 keys on the payload as
+  sent and a second spelling of one block would buy a second delivery.
+* **Verification.** `Core\Facilitator\NanoFacilitator` makes one `block_info`
+  RPC call and requires: `confirmed`, `subtype` `send`, `link_as_account`
+  equal to `payTo` (compared by public key), and `amount` at or above the
+  required raw amount (the same ≥ relaxation as §8.2). An unknown block is
+  `invalid_payload`; an unreachable or erroring node is a facilitator failure,
+  handled by `settlement.on_facilitator_error` like any other.
+* **Settlement.** A confirmed Nano send is final, so `settle` re-reads the
+  block and returns its hash as `transaction`. No key is held and no funds are
+  moved.
+* **Replay.** A confirmed block never expires, so duplicate delivery is
+  stopped by the §9 `ReplayGuard` alone. To keep that sound, blocks whose node
+  `local_timestamp` is older than `replay.ttl` (or absent) are refused, so the
+  guard still holds every block that can pass. A node that has just
+  bootstrapped dates old blocks to its sync time; point this at a node that
+  has been running for longer than the replay TTL.

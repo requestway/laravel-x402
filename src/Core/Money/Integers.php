@@ -83,4 +83,27 @@ final class Integers
 
         return '1'.$digits;
     }
+
+    /**
+     * Multiply two unsigned integer strings.
+     */
+    public static function multiply(string $a, string $b): string
+    {
+        $a = strrev(self::normalize($a));
+        $b = strrev(self::normalize($b));
+        $digits = array_fill(0, strlen($a) + strlen($b), 0);
+
+        for ($i = 0; $i < strlen($a); $i++) {
+            for ($j = 0; $j < strlen($b); $j++) {
+                $digits[$i + $j] += (int) $a[$i] * (int) $b[$j];
+            }
+        }
+
+        for ($k = 0; $k < count($digits) - 1; $k++) {
+            $digits[$k + 1] += intdiv($digits[$k], 10);
+            $digits[$k] %= 10;
+        }
+
+        return self::normalize(strrev(implode('', $digits)));
+    }
 }
