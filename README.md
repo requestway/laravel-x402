@@ -436,7 +436,9 @@ Route::get('/report', ReportController::class)->middleware('x402:0.01,networks=b
 ```
 
 XNO is not USD-pegged, so it is never a default: prices stay in USD and `units_per_usd` is the rate you choose. Each
-block can buy one response, and blocks older than `X402_REPLAY_TTL` are refused. See
+block can buy one response, and blocks older than `X402_REPLAY_TTL` are refused. Set `X402_NANO_REQUIRE_BINDING=true`
+to make each block commit to the order it pays for (the payer sends an `orderId` and sets the block's representative
+to its commitment), so a block hash seen on the ledger cannot pay for someone else's request. See
 [docs/SPEC_NOTES.md](docs/SPEC_NOTES.md) §14.
 
 ## Testing

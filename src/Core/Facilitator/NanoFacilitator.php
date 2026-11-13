@@ -21,6 +21,7 @@ use Requestway\X402\Core\Networks\Network;
 use Requestway\X402\Core\Protocol\Version;
 use Requestway\X402\Core\Support\Clock;
 use Requestway\X402\Core\Support\NanoAddress;
+use Requestway\X402\Core\Support\NanoBinding;
 use Requestway\X402\Core\Support\SystemClock;
 use Throwable;
 
@@ -36,6 +37,11 @@ use Throwable;
  * A confirmed block stays valid forever, so delivering twice is prevented by
  * the resource server's ReplayGuard, and a block older than the guard's
  * retention window is refused here so the guard always still remembers it.
+ *
+ * With `$requireBinding`, a block also has to commit to the order it pays
+ * for (NanoBinding): the payload carries the payer's secret `orderId`, and the
+ * block's representative must be the commitment to that id, `payTo` and the
+ * exact amount, so a public block hash cannot pay for anyone else's request.
  */
 final class NanoFacilitator implements Facilitator
 {
@@ -46,6 +52,7 @@ final class NanoFacilitator implements Facilitator
         private readonly Closure $rpc,
         private readonly int $maxAgeSeconds,
         private readonly Clock $clock = new SystemClock,
+        private readonly bool $requireBinding = false,
     ) {}
 
     public function verify(PaymentPayload $payload, PaymentRequirements $requirements, ResourceInfo $resource): VerifyResponse
@@ -89,10 +96,19 @@ final class NanoFacilitator implements Facilitator
         }
 
         $hash = $payload->payload['blockHash'] ?? null;
+        $orderId = $payload->payload['orderId'] ?? null;
+        $keys = array_keys($payload->payload);
+        sort($keys);
 
         // One spelling per block: ReplayGuard keys on the payload as sent, so
-        // a lowercase hash or an extra key must not buy a second delivery.
-        if (array_keys($payload->payload) !== ['blockHash'] || ! is_string($hash) || preg_match('/^[0-9A-F]{64}$/', $hash) !== 1) {
+        // a lowercase hash or an extra key must not buy a second delivery. A
+        // bound block commits to one orderId, so binding adds no spelling.
+        if ($this->requireBinding) {
+            if ($keys !== ['blockHash', 'orderId'] || ! is_string($hash) || preg_match('/^[0-9A-F]{64}\z/', $hash) !== 1
+                || ! is_string($orderId) || ! NanoBinding::isValidOrderId($orderId)) {
+                return [[ErrorCode::InvalidPayload, 'The payment must be exactly {"blockHash": "<64 uppercase hex>", "orderId": "<22 to 128 of A-Z a-z 0-9 _ ->"} for a send block bound to that order.'], null, null, ''];
+            }
+        } elseif ($keys !== ['blockHash'] || ! is_string($hash) || preg_match('/^[0-9A-F]{64}\z/', $hash) !== 1) {
             return [[ErrorCode::InvalidPayload, 'The payment must be exactly {"blockHash": "<64 uppercase hex>"} for a send block.'], null, null, ''];
         }
 
@@ -111,11 +127,26 @@ final class NanoFacilitator implements Facilitator
             ($info['subtype'] ?? null) !== 'send' || $account === null || $amount === null => [ErrorCode::InvalidPayload, 'The block is not a send block.'],
             ! NanoAddress::matches(is_string($contents['link_as_account'] ?? null) ? $contents['link_as_account'] : null, $requirements->payTo) => [ErrorCode::RecipientMismatch, ErrorCode::RecipientMismatch->message()],
             ! Integers::greaterThanOrEqual($amount, $requirements->amount) => [ErrorCode::ValueMismatch, 'The send block pays less than the required amount.'],
+            $this->requireBinding && $amount !== Integers::normalize($requirements->amount) => [ErrorCode::ValueMismatch, 'A bound send block must pay exactly the required amount.'],
+            $this->requireBinding && (! is_string($orderId) || ! $this->isBound($contents, $orderId, $requirements)) => [ErrorCode::InvalidPayload, 'The send block is not bound to this order: its representative is not the commitment to orderId, payTo and amount.'],
             ! $this->isRecent($info['local_timestamp'] ?? null) => [ErrorCode::InvalidPayload, 'The send block is older than the replay window.'],
             default => null,
         };
 
         return [$failure, $account, $amount, $hash];
+    }
+
+    /**
+     * @param array<mixed> $contents
+     */
+    private function isBound(array $contents, string $orderId, PaymentRequirements $requirements): bool
+    {
+        $representative = $contents['representative'] ?? null;
+
+        return NanoAddress::matches(
+            is_string($representative) ? $representative : null,
+            NanoBinding::representative($orderId, $requirements->payTo, Integers::normalize($requirements->amount)),
+        );
     }
 
     private function isRecent(mixed $timestamp): bool

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
+use Requestway\X402\Config\X402Config;
 use Requestway\X402\Core\Errors\ErrorCode;
 use Requestway\X402\Core\Facilitator\Exceptions\FacilitatorConnectionException;
 use Requestway\X402\Core\Facilitator\Exceptions\FacilitatorException;
@@ -18,6 +19,7 @@ use Requestway\X402\Core\Protocol\V2Codec;
 use Requestway\X402\Core\Support\Base64;
 use Requestway\X402\Core\Support\FrozenClock;
 use Requestway\X402\Core\Support\Json;
+use Requestway\X402\Core\Support\NanoBinding;
 use Requestway\X402\Facilitators\HttpFacilitator;
 use Requestway\X402\Facilitators\RoutingFacilitator;
 use Requestway\X402\Tests\TestCase;
@@ -27,6 +29,7 @@ const NANO_PAYER = 'nano_16aj46aj46aj46aj46aj46aj46aj46aj46aj46aj46aj46aj46ajbts
 const NANO_NODE = 'https://node.test/rpc';
 const NANO_HASH = '991CF190094C00F0B68E2E5F75F6BEE95A2E0BD93CEAA4A6734DB9F19B728948';
 const NANO_NOW = 1_760_000_000;
+const NANO_ORDER = 'k3Jd9QwXv2LmP8sTzR4a-_';
 
 function nanoRequirements(string $amount = '10000000000000000000000000000'): PaymentRequirements
 {
@@ -149,8 +152,110 @@ it('rejects a malformed block hash without calling the node', function (array $p
     'not a string' => [['blockHash' => 123]],
     // A second spelling of one block would get past ReplayGuard.
     'lowercase' => [['blockHash' => strtolower(NANO_HASH)]],
+    'trailing newline' => [['blockHash' => NANO_HASH."\n"]],
     'extra key' => [['blockHash' => NANO_HASH, 'nonce' => '1']],
+    'an order id while binding is off' => [['blockHash' => NANO_HASH, 'orderId' => NANO_ORDER]],
 ]);
+
+/**
+ * A NanoFacilitator that requires every block to commit to its order.
+ *
+ * @param array<string, mixed> $response
+ */
+function nanoBoundVerify(array $response, array $payload = ['blockHash' => NANO_HASH, 'orderId' => NANO_ORDER], ?array &$calls = null): Requestway\X402\Core\Messages\VerifyResponse
+{
+    $calls = [];
+
+    $facilitator = new NanoFacilitator(
+        rpc: function (array $body) use ($response, &$calls): array {
+            $calls[] = $body;
+
+            return $response;
+        },
+        maxAgeSeconds: 86400,
+        clock: new FrozenClock(NANO_NOW),
+        requireBinding: true,
+    );
+
+    return $facilitator->verify(new PaymentPayload(2, nanoRequirements(), $payload), nanoRequirements(), new ResourceInfo('https://api.test/x'));
+}
+
+/**
+ * A confirmed send whose representative commits to $orderId, payTo and 0.01 XNO.
+ *
+ * @param array<string, mixed> $overrides
+ * @return array<string, mixed>
+ */
+function nanoBoundBlock(string $orderId = NANO_ORDER, array $overrides = []): array
+{
+    return nanoBlock($overrides, ['representative' => NanoBinding::representative($orderId, NANO_PAY_TO, '10000000000000000000000000000')]);
+}
+
+describe('with order binding required', function (): void {
+    it('verifies a send block that commits to the presented order', function (): void {
+        $verification = nanoBoundVerify(nanoBoundBlock(), calls: $calls);
+
+        expect($verification->isValid)->toBeTrue()
+            ->and($verification->payer)->toBe(NANO_PAYER)
+            ->and($calls)->toBe([['action' => 'block_info', 'json_block' => 'true', 'hash' => NANO_HASH]]);
+    });
+
+    it('refuses a block that commits to another order, so a public hash cannot pay for someone else', function (): void {
+        $verification = nanoBoundVerify(nanoBoundBlock('someone-elses-order-id-0001'));
+
+        expect($verification->isValid)->toBeFalse()
+            ->and($verification->invalidReason)->toBe(ErrorCode::InvalidPayload->value)
+            ->and($verification->invalidMessage)->toContain('not bound to this order');
+    });
+
+    it('refuses a block that carries no commitment', function (array $block): void {
+        $verification = nanoBoundVerify($block);
+
+        expect($verification->isValid)->toBeFalse()
+            ->and($verification->invalidMessage)->toContain('not bound to this order');
+    })->with([
+        'ordinary representative' => [nanoBlock(contents: ['representative' => NANO_PAYER])],
+        'no representative' => [nanoBlock()],
+    ]);
+
+    it('refuses an overpayment, because the commitment names the exact amount', function (): void {
+        $verification = nanoBoundVerify(nanoBoundBlock(overrides: ['amount' => '10000000000000000000000000001']));
+
+        expect($verification->isValid)->toBeFalse()
+            ->and($verification->invalidReason)->toBe(ErrorCode::ValueMismatch->value)
+            ->and($verification->invalidMessage)->toContain('exactly');
+    });
+
+    it('still refuses an underpaid or unconfirmed bound block', function (array $overrides, ErrorCode $reason): void {
+        expect(nanoBoundVerify(nanoBoundBlock(overrides: $overrides))->invalidReason)->toBe($reason->value);
+    })->with([
+        'underpaid' => [['amount' => '9999999999999999999999999999'], ErrorCode::ValueMismatch],
+        'unconfirmed' => [['confirmed' => 'false'], ErrorCode::InvalidTransactionState],
+    ]);
+
+    it('refuses a payload without a well-formed order id, without calling the node', function (array $payload): void {
+        $verification = nanoBoundVerify(nanoBoundBlock(), $payload, $calls);
+
+        expect($verification->isValid)->toBeFalse()
+            ->and($verification->invalidReason)->toBe(ErrorCode::InvalidPayload->value)
+            ->and($calls)->toBe([]);
+    })->with([
+        'block hash alone' => [['blockHash' => NANO_HASH]],
+        'short order id' => [['blockHash' => NANO_HASH, 'orderId' => 'order-0001']],
+        'order id with a separator' => [['blockHash' => NANO_HASH, 'orderId' => NANO_ORDER.'|x']],
+        'order id not a string' => [['blockHash' => NANO_HASH, 'orderId' => 12345678901234567890]],
+        'lowercase hash' => [['blockHash' => strtolower(NANO_HASH), 'orderId' => NANO_ORDER]],
+        'extra key' => [['blockHash' => NANO_HASH, 'orderId' => NANO_ORDER, 'nonce' => '1']],
+    ]);
+});
+
+it('does not require a binding when the package does not verify Nano itself', function (): void {
+    config()->set('x402.nano.require_binding', true);
+    app()->forgetInstance(Facilitator::class);
+
+    expect(app(Facilitator::class))->toBeInstanceOf(HttpFacilitator::class)
+        ->and(app(X402Config::class)->nanoRequireBinding())->toBeFalse();
+});
 
 it('refuses requirements for another network', function (): void {
     $verification = nanoVerify(nanoBlock(), requirements: new PaymentRequirements('exact', 'eip155:8453', '1', 'XNO', NANO_PAY_TO, 60));
@@ -254,5 +359,28 @@ describe('with a Nano node configured', function (): void {
             ->and(settlement($paid)->payer)->toBe(NANO_PAYER);
 
         $this->getJson('/nano', $header)->assertStatus(402);
+    });
+
+    it('advertises and enforces the order binding end to end when it is required', function (): void {
+        config()->set('x402.nano.require_binding', true);
+        app()->forgetInstance(Facilitator::class);
+        Route::get('/nano-bound', fn (): array => ['data' => 'secret'])->middleware('x402:0.01,networks=nano');
+
+        $accepts = paymentRequired($this->getJson('/nano-bound'))->accepts;
+
+        expect($accepts)->toHaveCount(1)
+            ->and($accepts[0]->extra)->toBe(['binding' => NanoBinding::SCHEME]);
+
+        $representative = NanoBinding::representative(NANO_ORDER, $accepts[0]->payTo, $accepts[0]->amount);
+        Http::fake([NANO_NODE => Http::response(nanoBlock(['local_timestamp' => (string) time()], ['representative' => $representative]))]);
+
+        $header = fn (array $payload): array => [V2Codec::PAYMENT_SIGNATURE => Base64::encode(Json::encode(
+            (new PaymentPayload(2, $accepts[0], $payload))->toArray()
+        ))];
+
+        $this->getJson('/nano-bound', $header(['blockHash' => NANO_HASH]))->assertStatus(402);
+        $this->getJson('/nano-bound', $header(['blockHash' => NANO_HASH, 'orderId' => 'another-order-id-000000001']))->assertStatus(402);
+        $this->getJson('/nano-bound', $header(['blockHash' => NANO_HASH, 'orderId' => NANO_ORDER]))->assertOk()->assertExactJson(['data' => 'secret']);
+        $this->getJson('/nano-bound', $header(['blockHash' => NANO_HASH, 'orderId' => NANO_ORDER]))->assertStatus(402);
     });
 });

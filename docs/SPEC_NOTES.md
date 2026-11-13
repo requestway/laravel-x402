@@ -376,4 +376,20 @@ network, `nano:mainnet` included, goes to the HTTP facilitator unchanged.
   `local_timestamp` is older than `replay.ttl` (or absent) are refused, so the
   guard still holds every block that can pass. A node that has just
   bootstrapped dates old blocks to its sync time; point this at a node that
-  has been running for longer than the replay TTL.
+  has been running for longer than the replay TTL. The guard is only as
+  durable as `replay.store`: use a cache store that survives a restart.
+* **Order binding (opt-in, `nano.require_binding`).** A Nano block has no
+  memo and its hash is public, so by default any confirmed send of the price
+  to `payTo` pays for whichever request presents it first. With binding on,
+  the `nano:mainnet` entry in `accepts[]` carries
+  `extra.binding = "xno-binding/v1/rep"`, the payload is exactly
+  `{ "blockHash": "<64 uppercase hex>", "orderId": "<22-128 of [A-Za-z0-9_-]>" }`
+  with an `orderId` the payer draws at random and keeps secret, and the send
+  block's `representative` must be the account encoding
+  `SHA-256("xno-binding/v1/rep|" + orderId + "|" + payTo + "|" + amount)`
+  (`Core\Support\NanoBinding`). The amount must then be exact, because the
+  commitment names it. The block's signature covers the representative, and
+  only one `orderId` matches a given block, so binding adds no second spelling
+  for the replay guard. Scheme and vectors:
+  [BINDING-STANDARD.md](https://github.com/dhyabi2/xno-call-binding/blob/main/docs/BINDING-STANDARD.md),
+  option C.

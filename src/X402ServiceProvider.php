@@ -148,6 +148,7 @@ final class X402ServiceProvider extends PackageServiceProvider
                     rpc: $this->nanoRpc($nodeUrl, (int) $config->get('nano.timeout', 10)),
                     maxAgeSeconds: $config->replayTtl(),
                     clock: $this->app->make(Clock::class),
+                    requireBinding: $config->nanoRequireBinding(),
                 ),
             ]);
         });

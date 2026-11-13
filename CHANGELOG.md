@@ -16,11 +16,18 @@ and support for an older version is kept for reading as long as clients send it.
 - Opt-in `nano:mainnet` support: with `x402.nano.rpc_url` set, Nano payments are verified with one `block_info` call
   against your own node instead of a facilitator; every other network is unchanged. Adds the `nano` network alias,
   per-network `pay_to` and `units_per_usd` on assets that are not USD-pegged, and `RoutingFacilitator`
+- Opt-in `x402.nano.require_binding` (`X402_NANO_REQUIRE_BINDING`): a Nano payment must commit to its order through
+  the send block's representative and present the payer's `orderId`, so a public block hash cannot pay for another
+  request; amounts must then be exact. Adds `Core\Support\NanoBinding` and `NanoAddress::fromPublicKey()`
 
 ### Changed
 
 - README documents the Requestway dashboard: what it shows, how to connect it, how reporting behaves and exactly
   which fields are sent
+
+### Fixed
+
+- A Nano block hash followed by a newline no longer passes the payload check (`$` matched before it)
 
 ## [0.1.0] - 2026-10-10
 
