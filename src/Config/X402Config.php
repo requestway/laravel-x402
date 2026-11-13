@@ -242,6 +242,15 @@ final class X402Config
         return is_string($url) && trim($url) !== '' ? trim($url) : null;
     }
 
+    /**
+     * Whether a Nano payment must commit to its order (xno-binding v1). Only
+     * meaningful when this package verifies Nano itself.
+     */
+    public function nanoRequireBinding(): bool
+    {
+        return $this->nanoRpcUrl() !== null && (bool) $this->get('nano.require_binding', false);
+    }
+
     public function replayStore(): ?string
     {
         $store = $this->get('replay.store');

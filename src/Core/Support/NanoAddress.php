@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Requestway\X402\Core\Support;
 
+use InvalidArgumentException;
+
 /**
  * Nano account addresses: `nano_` (or the legacy `xrb_`) followed by the
  * 256-bit public key and a 40-bit Blake2b checksum, both in Nano's own base32
@@ -48,6 +50,27 @@ final class NanoAddress
     }
 
     /**
+     * The `nano_` address of a 32-byte public key, given as raw binary.
+     *
+     * @throws InvalidArgumentException when the key is not 32 bytes
+     */
+    public static function fromPublicKey(string $key): string
+    {
+        if (strlen($key) !== 32) {
+            throw new InvalidArgumentException('A Nano public key is 32 bytes.');
+        }
+
+        $bits = '0000'.self::bits($key).self::bits(strrev(Blake2b::hash($key, 5)));
+        $address = 'nano_';
+
+        foreach (str_split($bits, 5) as $chunk) {
+            $address .= self::ALPHABET[(int) bindec($chunk)];
+        }
+
+        return $address;
+    }
+
+    /**
      * Compare two addresses by the key they encode, so `xrb_` and `nano_`
      * forms of one account match.
      */
@@ -60,6 +83,17 @@ final class NanoAddress
         $key = self::publicKey($a);
 
         return $key !== null && $key === self::publicKey($b);
+    }
+
+    private static function bits(string $bytes): string
+    {
+        $bits = '';
+
+        foreach (str_split($bytes) as $byte) {
+            $bits .= str_pad(decbin(ord($byte)), 8, '0', STR_PAD_LEFT);
+        }
+
+        return $bits;
     }
 
     private static function bytes(string $bits): string

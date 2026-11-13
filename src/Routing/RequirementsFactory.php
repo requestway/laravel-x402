@@ -10,6 +10,7 @@ use Requestway\X402\Core\Messages\PaymentRequired;
 use Requestway\X402\Core\Messages\PaymentRequirements;
 use Requestway\X402\Core\Messages\ResourceInfo;
 use Requestway\X402\Core\Networks\Network;
+use Requestway\X402\Core\Support\NanoBinding;
 
 /**
  * Turns a resolved route into the PaymentRequired object advertised on a 402.
@@ -71,7 +72,9 @@ final class RequirementsFactory
                 asset: $asset->address,
                 payTo: $asset->payTo ?? $route->payTo,
                 maxTimeoutSeconds: $route->maxTimeoutSeconds,
-                extra: $asset->requirementsExtra(),
+                extra: Network::isNano($network) && $this->config->nanoRequireBinding()
+                    ? array_merge($asset->requirementsExtra(), ['binding' => NanoBinding::SCHEME])
+                    : $asset->requirementsExtra(),
             );
         }
 

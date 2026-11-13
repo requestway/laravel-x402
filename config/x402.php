@@ -141,12 +141,18 @@ return [
     | run or trust instead of the facilitator. Add a nano:mainnet entry under
     | "assets" with its own pay_to and units_per_usd. Unset, nothing changes.
     |
+    | require_binding makes every Nano payment commit to its order: the payer
+    | sends {"blockHash", "orderId"} and sets the block's representative to
+    | the xno-binding v1 commitment (docs/SPEC_NOTES.md §14). Off by default.
+    |
     */
 
     'nano' => [
         'rpc_url' => env('X402_NANO_RPC_URL'),
 
         'timeout' => (int) env('X402_NANO_RPC_TIMEOUT', 10),
+
+        'require_binding' => (bool) env('X402_NANO_REQUIRE_BINDING', false),
     ],
 
     /*
